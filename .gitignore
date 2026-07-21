@@ -427,3 +427,11 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# --- Resume ATS Optimizer ---
+.env
+.venv/
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
