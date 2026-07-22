@@ -136,7 +136,15 @@ class Edit(BaseModel):
 
 
 class TailorResult(BaseModel):
-    resume: ParsedResume
+    """Only the edits. The tailored resume is built from them in code.
+
+    Asking the model for the full rewritten ParsedResume *alongside* the edit
+    list made it echo the input resume back unchanged while still describing
+    edits it never applied — so the post-tailoring score was always identical
+    to the pre-tailoring one. Dropping the redundant field also makes the edit
+    log authoritative: what it says changed is exactly what changed.
+    """
+
     edits: list[Edit] = Field(default_factory=list)
 
 

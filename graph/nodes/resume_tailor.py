@@ -8,7 +8,7 @@ defect, however well it scores.
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from graph.state import TailorResult
+from graph.state import ParsedResume, TailorResult
 from tools.llm_factory import structured
 
 SYSTEM = """You tailor an existing resume to a specific job description.
@@ -54,9 +54,24 @@ appear in the input resume. If the job description requires something the resume
 does not support, it STAYS A GAP — do not write it in. Gaps flagged
 unsupported_by_resume are absolutely off-limits.
 
-Produce an Edit entry for every change you make, with the before text, the after
-text, its location (e.g. 'experience[0].bullets[2]'), and the reason it improves
-the match. An unlogged change is a change nobody can audit."""
+OUTPUT FORMAT — READ CAREFULLY
+You return a list of edits, and nothing else. Those edits ARE the rewrite: they
+get applied to the base resume mechanically, so an edit you do not write is a
+change that does not happen.
+
+For each edit:
+- `before`: the EXACT original text, copied character-for-character from the
+  base resume field you are changing. It is what locates the field, so an
+  approximate quote silently drops the edit. Leave it empty ONLY when adding a
+  new entry to the skills or certifications list.
+- `after`: the full replacement text for that field (not a fragment, not a diff).
+- `location`: e.g. 'experience[0].bullets[2]', 'summary', 'skills'.
+- `reason`: why it improves the match.
+
+One edit per field changed. Rewrite every bullet whose wording can honestly
+carry the posting's vocabulary — a handful of edits means you left points on
+the table. Additions are limited to skills and certifications the candidate
+demonstrably already has; you cannot add bullets, roles, or employers."""
 
 RETRY_PREFIX = """*** PREVIOUS ATTEMPT REJECTED FOR FABRICATION ***
 
@@ -129,6 +144,72 @@ def _targeting_block(state) -> str:
     return "\n".join(lines)
 
 
+def _text_slots(node):
+    """Yield (container, key) for every string leaf in a nested dict/list."""
+    items = node.items() if isinstance(node, dict) else (
+        enumerate(node) if isinstance(node, list) else ()
+    )
+    for key, value in items:
+        if isinstance(value, str):
+            yield node, key
+        else:
+            yield from _text_slots(value)
+
+
+def _replace(data: dict, before: str, after: str) -> bool:
+    """Rewrite the one field whose text is `before`. True if something changed.
+
+    Matching on the text rather than parsing Edit.location ('experience[0].
+    bullets[2]') because the location is prose the model composes freehand,
+    while `before` is quoted from the resume we sent it. A stale index silently
+    rewrites the wrong bullet; a stale quote just fails to match.
+    """
+    slots = list(_text_slots(data))
+    for container, key in slots:
+        if container[key].strip() == before:
+            container[key] = after
+            return True
+    # Fallback for a `before` the model truncated or lightly reflowed.
+    head = before[:40]
+    if len(head) < 20:  # too short to identify a field unambiguously
+        return False
+    for container, key in slots:
+        if container[key].strip().startswith(head):
+            container[key] = after
+            return True
+    return False
+
+
+def apply_edits(resume: ParsedResume, edits: list) -> tuple[ParsedResume, list]:
+    """Build the tailored resume by applying `edits`. Returns (resume, applied).
+
+    An edit that matches nothing is dropped rather than appended: unmatched
+    `after` text is content with no home in the document, and inserting it
+    blindly is how invented experience would get in.
+    """
+    data = resume.model_dump()
+    applied = []
+    for edit in edits:
+        before, after = edit.before.strip(), edit.after.strip()
+        if not after or before == after:
+            continue
+        if before:
+            if _replace(data, before, after):
+                applied.append(edit)
+        # No `before` means an addition. Only the flat keyword lists take one;
+        # a new bullet or role would be new experience, which the tailor is
+        # never allowed to create.
+        elif "skill" in edit.location.lower():
+            if after not in data["skills"]:
+                data["skills"].append(after)
+                applied.append(edit)
+        elif "cert" in edit.location.lower():
+            if after not in data["certifications"]:
+                data["certifications"].append(after)
+                applied.append(edit)
+    return ParsedResume.model_validate(data), applied
+
+
 def resume_tailor_node(state) -> dict:
     resume = state.get("parsed_resume")
     jd = state.get("parsed_jd")
@@ -152,8 +233,9 @@ def resume_tailor_node(state) -> dict:
     result = structured(TailorResult).invoke(
         [SystemMessage(SYSTEM), HumanMessage(user)]
     )
+    tailored, applied = apply_edits(resume, result.edits)
     return {
-        "tailored_resume": result.resume,
-        "edit_log": result.edits,
+        "tailored_resume": tailored,
+        "edit_log": applied,
         "tailor_attempts": state.get("tailor_attempts", 0) + 1,
     }
