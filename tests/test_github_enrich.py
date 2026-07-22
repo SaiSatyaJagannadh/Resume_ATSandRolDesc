@@ -148,3 +148,24 @@ def test_enriched_projects_do_not_read_as_fabrication(fake_embeddings, monkeypat
     tailored.projects[0].bullets[0] = "Built with Python."
 
     assert find_fabrications(enriched, tailored) == []
+
+
+def test_dedupe_catches_renamed_duplicates(monkeypatch):
+    """Token overlap alone missed this real case; meaning catches it."""
+    existing = [ProjectEntry(name="Covid-19 Data Analysis on Azure")]
+    repos = [_repo("Azure-Data-Factory-Project-on-Covid19"), _repo("F1_Race_Databricks")]
+
+    # Duplicate pair scores high, unrelated pair low — the measured shape.
+    def embed(texts):
+        return [[1.0, 0.0] if "covid" in t.lower() else [0.0, 1.0] for t in texts]
+
+    monkeypatch.setattr(ge, "embed", embed)
+    monkeypatch.setattr(ge, "cosine_sim",
+                        lambda a, b: sum(x * y for x, y in zip(a, b)))
+
+    assert [r["name"] for r in ge.dedupe(repos, existing)] == ["F1_Race_Databricks"]
+
+
+def test_dedupe_is_a_noop_without_existing_projects():
+    repos = [_repo("anything")]
+    assert ge.dedupe(repos, []) == repos

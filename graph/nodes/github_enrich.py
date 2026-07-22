@@ -27,15 +27,8 @@ def _norm_name(text: str) -> set[str]:
     }
 
 
-# ponytail: name tokens only. A repo titled differently from the resume's
-# write-up of the same project still slips through. Upgrade to cosine of the two
-# profiles if that shows up in practice.
 def _is_duplicate(repo_name: str, existing) -> bool:
-    """True when the resume already describes this project.
-
-    "AI-Healthcare-Chatbot" must not be appended beside the resume's own "AI
-    Healthcare Chatbot Website for Medical Queries".
-    """
+    """Cheap token test: True when the names plainly describe the same project."""
     repo_tokens = _norm_name(repo_name)
     if not repo_tokens:
         return True
@@ -47,6 +40,42 @@ def _is_duplicate(repo_name: str, existing) -> bool:
         if overlap >= 0.5 or repo_tokens <= other or other <= repo_tokens:
             return True
     return False
+
+
+def _readable(name: str) -> str:
+    return name.replace("-", " ").replace("_", " ").strip()
+
+
+def dedupe(repos, existing) -> list[dict]:
+    """Drop repos the resume already describes, by name tokens then meaning.
+
+    Token overlap alone is not enough, and the failure is not hypothetical:
+    "Azure-Data-Factory-Project-on-Covid19" against the resume's own "Covid-19
+    Data Analysis on Azure" shares only a third of its tokens and sailed
+    through, putting the same project on the page twice. Measured on this
+    resume, real duplicates sit at 0.69-0.73 cosine and unrelated pairs at
+    0.40-0.48, so 0.60 separates them with room on both sides.
+    """
+    if not existing or not repos:
+        return list(repos)
+
+    survivors = [r for r in repos if not _is_duplicate(r.get("name", ""), existing)]
+    if not survivors:
+        return []
+
+    project_names = [p.name for p in existing if p.name.strip()]
+    if not project_names:
+        return survivors
+
+    # One batched call: the embedding cache makes the repeat lookups free.
+    vectors = embed([_readable(r.get("name", "")) for r in survivors] + project_names)
+    repo_vecs = vectors[: len(survivors)]
+    project_vecs = vectors[len(survivors):]
+
+    return [
+        r for r, rv in zip(survivors, repo_vecs)
+        if max(cosine_sim(rv, pv) for pv in project_vecs) < config.GITHUB_DEDUP_THRESHOLD
+    ]
 
 
 def _to_project(repo: dict, dirs) -> ProjectEntry:
@@ -133,10 +162,7 @@ def github_enrich_node(state) -> dict:
 
         # Dedup before ranking, so a project the resume already covers cannot
         # consume one of the few slots.
-        candidates = [
-            r for r in fetch_repos(username)
-            if not _is_duplicate(r.get("name", ""), resume.projects)
-        ]
+        candidates = dedupe(fetch_repos(username), resume.projects)
         picks = select_projects(jd, candidates)
         if not picks:
             return {}

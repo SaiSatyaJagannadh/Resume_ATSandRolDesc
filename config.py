@@ -114,6 +114,13 @@ GITHUB_SHORTLIST = int(os.getenv("GITHUB_SHORTLIST", "8"))
 # quota regardless of relevance.
 GITHUB_MATCH_THRESHOLD = float(os.getenv("GITHUB_MATCH_THRESHOLD", "0.30"))
 
+# Above this similarity, a repo is treated as the project the resume already
+# describes. Name-token overlap alone let "Azure-Data-Factory-Project-on-Covid19"
+# through against "Covid-19 Data Analysis on Azure" — a third of its tokens, and
+# the same project listed twice. Measured here, real duplicates sit at 0.69-0.73
+# and unrelated pairs at 0.40-0.48.
+GITHUB_DEDUP_THRESHOLD = float(os.getenv("GITHUB_DEDUP_THRESHOLD", "0.60"))
+
 GITHUB_CACHE_TTL_HOURS = 24
 
 # --- Persistence -----------------------------------------------------------
