@@ -28,6 +28,15 @@ Rules, in priority order:
    CORRECT. A guessed field is a bug. Never fill in a plausible email, a likely
    location, an implied seniority, or an assumed graduation year.
 5. Do not deduplicate or reorder. Preserve the resume's own ordering.
+6. SKILLS: capture EVERY item listed in any skills, technologies, tools, or
+   technical-competencies section — one array entry per skill. These sections
+   are usually dense delimited lists, sometimes grouped under sub-labels, e.g.
+   "Languages: Python, SQL, Java | Cloud: AWS, GCP | Tools: Docker, Airflow".
+   Split on every delimiter (commas, pipes, slashes, semicolons, bullets) and
+   emit each skill separately: Python, SQL, Java, AWS, GCP, Docker, Airflow.
+   Drop the group labels themselves, keep the skills. Returning a handful of
+   entries when the resume lists dozens is a transcription failure — these
+   entries are exactly what an ATS keyword scan reads first.
 
 If the text is ambiguous, prefer the more literal reading and leave the
 uncertain part out."""
