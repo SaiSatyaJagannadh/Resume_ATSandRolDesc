@@ -91,12 +91,38 @@ MAX_OPTIMIZE_ROUNDS = int(os.getenv("MAX_OPTIMIZE_ROUNDS", "2"))
 # not a failure to optimize.
 MUST_HAVE_FLOOR = 0.5
 
+# --- GitHub project enrichment ---------------------------------------------
+
+# Normally discovered from a github.com link recovered out of the resume file;
+# these are the fallbacks for when the resume carries no such link.
+GITHUB_USERNAME = os.getenv("GITHUB_USERNAME", "")
+# Optional. Lifts the API allowance from 60 requests/hour to 5000.
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+
+# How many repos are appended to the resume, and how many get a second look.
+# Ranking happens in two stages because listing repos costs one call while
+# reading a repo's file tree costs one call *each* — 37 repos would blow the
+# unauthenticated hourly allowance on a single run.
+GITHUB_MAX_PROJECTS = int(os.getenv("GITHUB_MAX_PROJECTS", "3"))
+GITHUB_SHORTLIST = int(os.getenv("GITHUB_SHORTLIST", "8"))
+
+# Minimum JD-to-repo similarity for a project to be worth adding. Deliberately
+# NOT SEMANTIC_MATCH_THRESHOLD (0.50): that was calibrated for a short keyword
+# against a resume fragment, whereas this compares a whole job description
+# against a whole repo profile — a different distribution entirely. Its only job
+# is to stop an account with dozens of repos from always contributing the full
+# quota regardless of relevance.
+GITHUB_MATCH_THRESHOLD = float(os.getenv("GITHUB_MATCH_THRESHOLD", "0.30"))
+
+GITHUB_CACHE_TTL_HOURS = 24
+
 # --- Persistence -----------------------------------------------------------
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 BASE_RESUME_JSON = DATA_DIR / "base_resume.json"
 BASE_RESUME_ORIGINAL = DATA_DIR / "base_resume_original"  # extension appended
 EMBEDDING_CACHE = DATA_DIR / "embedding_cache.json"
+GITHUB_CACHE = DATA_DIR / "github_cache.json"
 
 
 def require_key(provider: str = None) -> None:
