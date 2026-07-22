@@ -53,12 +53,25 @@ covering a job-description requirement, that requirement stays an unmet gap.
 
 """
 
+OPTIMIZE_PREFIX = """*** SCORE OPTIMIZATION PASS ***
+
+Your previous version was truthful but scored below target. The analysis below
+says exactly where the points are. Raise the score WITHOUT relaxing a single
+rule above — a higher score obtained by inventing experience is a failure.
+
+{feedback}
+
+*** END OPTIMIZATION NOTICE ***
+
+"""
+
 
 def resume_tailor_node(state) -> dict:
     resume = state.get("parsed_resume")
     jd = state.get("parsed_jd")
     gaps = state.get("gap_analysis")
     feedback = state.get("validator_feedback")
+    optimize = state.get("optimizer_feedback")
 
     user = (
         f"BASE RESUME (the only source of facts):\n"
@@ -66,6 +79,9 @@ def resume_tailor_node(state) -> dict:
         f"JOB DESCRIPTION:\n{jd.model_dump_json(indent=2) if jd else '{}'}\n\n"
         f"GAP ANALYSIS:\n{gaps.model_dump_json(indent=2) if gaps else '{}'}"
     )
+    # A fabrication rejection outranks a score shortfall: correctness first.
+    if optimize and not feedback:
+        user = OPTIMIZE_PREFIX.format(feedback=optimize) + user
     if feedback:
         user = RETRY_PREFIX.format(feedback=feedback) + user
 

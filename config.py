@@ -53,7 +53,24 @@ SEMANTIC_MATCH_CREDIT = 0.6
 
 # --- Tailoring loop --------------------------------------------------------
 
+# Fabrication retries, per optimization round.
 MAX_TAILOR_RETRIES = 2
+
+# --- Score optimization loop -----------------------------------------------
+
+# The score the tailored resume aims to clear.
+TARGET_ATS_SCORE = float(os.getenv("TARGET_ATS_SCORE", "85"))
+
+# Extra re-tailoring passes allowed when the target is missed. Each round costs
+# a full tailor + validate + score cycle, so this is deliberately small.
+MAX_OPTIMIZE_ROUNDS = int(os.getenv("MAX_OPTIMIZE_ROUNDS", "2"))
+
+# Below this share of must-have keywords present, the target is treated as
+# unreachable honestly: the remaining points live almost entirely in the 45%
+# keyword dimension, and the only way to close that gap is to claim skills the
+# candidate does not have. Stopping early here is the guardrail doing its job,
+# not a failure to optimize.
+MUST_HAVE_FLOOR = 0.5
 
 # --- Persistence -----------------------------------------------------------
 

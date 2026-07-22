@@ -5,7 +5,7 @@ structured-output schemas handed to the LLM, so they are the single source of
 truth for the whole pipeline.
 """
 
-from typing import Annotated, Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -186,6 +186,19 @@ class GraphState(TypedDict, total=False):
     validation: ValidationResult
     tailor_attempts: int
     validator_feedback: str
+
+    # Score optimization loop. `best_*` exist because a re-tailoring round can
+    # score WORSE than the one before it; without keeping the best-so-far, an
+    # optimization pass could hand back a regression.
+    optimize_rounds: int
+    optimizer_feedback: str
+    best_resume: ParsedResume
+    best_score: ATSScore
+    best_edit_log: list[Edit]
+    score_history: list[float]
+    target_met: bool
+    # Why optimization stopped, in plain language for the user.
+    ceiling_reason: str
 
     # Rendered artifact
     docx_path: str
