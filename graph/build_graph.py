@@ -5,6 +5,7 @@ from langgraph.graph import END, StateGraph
 from graph.nodes.ats_scorer import ats_scorer_node
 from graph.nodes.gap_analysis import gap_analysis_node
 from graph.nodes.jd_parser import jd_parser_node
+from graph.nodes.optimizer import route_after_score, score_gate_node
 from graph.nodes.resume_parser import resume_parser_node
 from graph.nodes.resume_renderer import resume_renderer_node
 from graph.nodes.resume_tailor import resume_tailor_node
@@ -42,6 +43,7 @@ def build_graph():
     g.add_node("resume_tailor", resume_tailor_node)
     g.add_node("truthfulness_validator", truthfulness_validator_node)
     g.add_node("score_post", ats_scorer_node)
+    g.add_node("score_gate", score_gate_node)
     g.add_node("resume_renderer", resume_renderer_node)
     g.add_node("fail", _fail_node)
 
@@ -58,7 +60,15 @@ def build_graph():
         {"retry": "resume_tailor", "ok": "score_post", "fail": "fail"},
     )
 
-    g.add_edge("score_post", "resume_renderer")
+    # Score gate: re-tailor toward the target, or accept the best truthful
+    # result and render it.
+    g.add_edge("score_post", "score_gate")
+    g.add_conditional_edges(
+        "score_gate",
+        route_after_score,
+        {"optimize": "resume_tailor", "done": "resume_renderer"},
+    )
+
     g.add_edge("resume_renderer", END)
     g.add_edge("fail", END)
 

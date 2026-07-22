@@ -7,7 +7,14 @@ from tools.render_docx import render_docx
 
 
 def resume_renderer_node(state) -> dict:
-    resume = state.get("tailored_resume") or state.get("parsed_resume")
+    # best_resume, not tailored_resume: an optimization round can score worse
+    # than an earlier one, and the user should get the best truthful version
+    # produced, not whichever happened to run last.
+    resume = (
+        state.get("best_resume")
+        or state.get("tailored_resume")
+        or state.get("parsed_resume")
+    )
     if resume is None:
         return {"error": "Nothing to render: no resume in state."}
 
