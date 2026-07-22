@@ -16,6 +16,11 @@ from graph.state import (
 )
 
 
+# Just short of whatever the target currently is, so retuning TARGET_ATS_SCORE
+# does not silently flip these cases to "target met".
+BELOW_TARGET = config.TARGET_ATS_SCORE - 5.0
+
+
 def make_score(total, must_matched=3, must_missing=0, other_missing=()):
     matched = [
         KeywordMatch(keyword=f"mh{i}", matched=True, match_type="exact",
@@ -81,7 +86,7 @@ def test_missing_must_haves_is_an_honest_ceiling():
 
 def test_rounds_exhausted_stops():
     out = score_gate_node(
-        base_state(make_score(80.0, must_matched=4, must_missing=1),
+        base_state(make_score(BELOW_TARGET, must_matched=4, must_missing=1),
                    optimize_rounds=config.MAX_OPTIMIZE_ROUNDS)
     )
     assert route_after_score(out) == "done"
@@ -90,8 +95,8 @@ def test_rounds_exhausted_stops():
 
 def test_diminishing_returns_stops():
     out = score_gate_node(
-        base_state(make_score(80.2, must_matched=4, must_missing=1),
-                   score_history=[80.0], optimize_rounds=0)
+        base_state(make_score(BELOW_TARGET + 0.2, must_matched=4, must_missing=1),
+                   score_history=[BELOW_TARGET], optimize_rounds=0)
     )
     assert route_after_score(out) == "done"
     assert "almost no change" in out["ceiling_reason"]

@@ -59,7 +59,18 @@ MAX_TAILOR_RETRIES = 2
 # --- Score optimization loop -----------------------------------------------
 
 # The score the tailored resume aims to clear.
-TARGET_ATS_SCORE = float(os.getenv("TARGET_ATS_SCORE", "85"))
+#
+# 75, not 85, because 85 was never calibrated against what this scorer can
+# actually emit. Measured on a real resume:
+#   - JD copied verbatim from the resume  -> 91.7  (degenerate; literal identity)
+#   - ideal candidate, employer's wording -> 70.5  (every requirement genuinely met)
+# Two dimensions score raw cosine similarity, and paraphrase costs ~0.35 of it
+# however well-qualified the candidate is: `title` cannot exceed ~0.63 without
+# an almost identical job title, and the tailor is rightly forbidden from
+# editing titles. So 85 was reachable only by copying the posting's wording
+# wholesale — the exact behaviour the truthfulness guardrail exists to prevent.
+# The result was that every honest run reported failure.
+TARGET_ATS_SCORE = float(os.getenv("TARGET_ATS_SCORE", "75"))
 
 # Extra re-tailoring passes allowed when the target is missed. Each round costs
 # a full tailor + validate + score cycle, so this is deliberately small.

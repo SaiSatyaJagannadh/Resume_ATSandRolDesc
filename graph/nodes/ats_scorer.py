@@ -13,8 +13,10 @@ from tools.embeddings import best_match, embed
 
 # Anything that reads as a measurable outcome: digits, percent, currency, or a
 # magnitude word ("cut costs by half a million").
+# "zero downtime" / "no data loss" are quantified outcomes an employer reads as
+# hard numbers; only the digit is missing.
 _METRIC_RE = re.compile(
-    r"\d|%|[$€£₹]|\b(?:\d+[kmb]n?|k|m|bn|million|billion|thousand)\b", re.I
+    r"\d|%|[$€£₹]|\b(?:\d+[kmb]n?|k|m|bn|million|billion|thousand|zero)\b", re.I
 )
 
 
