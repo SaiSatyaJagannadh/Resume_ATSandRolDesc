@@ -6,6 +6,7 @@ import config
 
 from graph.nodes.ats_scorer import ats_scorer_node
 from graph.nodes.gap_analysis import gap_analysis_node
+from graph.nodes.github_enrich import github_enrich_node
 from graph.nodes.jd_parser import jd_parser_node
 from graph.nodes.optimizer import route_after_score, score_gate_node
 from graph.nodes.resume_parser import resume_parser_node
@@ -58,6 +59,7 @@ def build_graph():
     # Same callable registered twice: it inspects state to decide whether this
     # is the pre- or post-tailoring pass.
     g.add_node("score_pre", ats_scorer_node)
+    g.add_node("github_enrich", github_enrich_node)
     g.add_node("gap_analysis", gap_analysis_node)
     g.add_node("resume_tailor", resume_tailor_node)
     g.add_node("truthfulness_validator", truthfulness_validator_node)
@@ -69,7 +71,12 @@ def build_graph():
 
     g.set_entry_point("resume_parser")
     g.add_edge("resume_parser", "jd_parser")
-    g.add_edge("jd_parser", "score_pre")
+    # Enrichment sits here so parsed_jd exists to rank against, and the
+    # resume is enriched before score_pre, gap_analysis, the tailor and the
+    # validator ever read it. The tailoring loop never routes back through
+    # this node, so it runs exactly once.
+    g.add_edge("jd_parser", "github_enrich")
+    g.add_edge("github_enrich", "score_pre")
     g.add_edge("score_pre", "gap_analysis")
     g.add_edge("gap_analysis", "resume_tailor")
     g.add_edge("resume_tailor", "truthfulness_validator")

@@ -176,6 +176,8 @@ class GraphState(TypedDict, total=False):
     # Inputs
     raw_resume_text: str
     raw_jd_text: str
+    # Only needed when no github.com link can be recovered from the resume file.
+    github_username: str
 
     # Parsed
     parsed_resume: ParsedResume
@@ -184,6 +186,11 @@ class GraphState(TypedDict, total=False):
     # Scores
     pre_score: ATSScore
     post_score: ATSScore
+
+    # Repos auto-added to the resume, by URL. Not cosmetic: appending content to
+    # someone's resume without telling them is this feature's failure mode, so
+    # the UI has to be able to show exactly what was added.
+    github_projects_added: list[str]
 
     # Analysis and output
     gap_analysis: GapAnalysis
