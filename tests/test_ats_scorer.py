@@ -140,3 +140,81 @@ def test_embedding_cache_dedupes_calls():
     emb.embed(["hello world"])
     emb.embed(["hello world"])
     assert len(calls) == 1
+
+
+# --- Vendor-qualifier keyword matching -------------------------------------
+# Regression: a JD saying "Apache Airflow" against a resume saying "Airflow"
+# scored as MISSING. Exact-phrase match failed and the semantic fallback
+# diluted below threshold against a long bullet, understating the score on a
+# skill the candidate genuinely has.
+
+
+def _jd(**kw):
+    from graph.state import ParsedJD
+    base = dict(role_title="Data Engineer", seniority="Senior", must_have_skills=[],
+                nice_to_have_skills=[], keywords=[], responsibilities=[], domain="data")
+    base.update(kw)
+    return ParsedJD(**base)
+
+
+def _resume(skills, bullets=("Did work.",)):
+    from graph.state import Contact, ExperienceEntry, ParsedResume
+    return ParsedResume(
+        contact=Contact(name="A", email="a@b.com", phone="5550100"),
+        skills=list(skills),
+        experience=[ExperienceEntry(company="C", title="Data Engineer",
+                                    dates="2020-2024", bullets=list(bullets))],
+    )
+
+
+def test_vendor_qualifier_is_stripped_when_matching():
+    from graph.nodes.ats_scorer import score
+    s = score(_resume(["Airflow", "S3"]), _jd(must_have_skills=["Apache Airflow", "Amazon S3"]))
+    missing = {k.keyword for k in s.missing_keywords}
+    assert "Apache Airflow" not in missing, "resume has Airflow; must not score as missing"
+    assert "Amazon S3" not in missing
+    assert all(k.match_type == "exact" for k in s.matched_keywords)
+
+
+def test_qualifier_stripping_does_not_invent_matches():
+    """Stripping a qualifier must not make an absent skill look present."""
+    from graph.nodes.ats_scorer import score
+    s = score(_resume(["Python"]), _jd(must_have_skills=["Apache Kafka"]))
+    assert "Apache Kafka" in {k.keyword for k in s.missing_keywords}
+
+
+def test_bare_qualifier_word_is_not_stripped_to_nothing():
+    from graph.nodes.ats_scorer import _keyword_variants
+    assert _keyword_variants("aws") == ["aws"]
+    assert _keyword_variants("apache airflow") == ["apache airflow", "airflow"]
+
+
+# --- Cache poisoning -------------------------------------------------------
+# Regression: a single cached vector of the wrong dimension (from a model
+# switch, an interrupted write, or a shared test path) reached cosine_sim and
+# raised a shape error, taking down the whole scorer mid-analysis.
+
+
+def test_mismatched_cache_entries_are_dropped_not_fatal(tmp_path, monkeypatch):
+    import json
+    import tools.embeddings as emb
+
+    cache_file = tmp_path / "cache.json"
+    good = [0.1] * 1536
+    cache_file.write_text(json.dumps({
+        emb._key("alpha"): good,
+        emb._key("beta"): good,
+        emb._key("poison"): [1.0, 2.0],      # wrong dimension
+        emb._key("junk"): "not-a-vector",     # wrong type entirely
+    }))
+    monkeypatch.setattr(emb.config, "EMBEDDING_CACHE", cache_file)
+    monkeypatch.setattr(emb, "_cache", None)
+
+    loaded = emb._load_cache()
+    assert len(loaded) == 2, "bad entries should be dropped"
+    assert all(len(v) == 1536 for v in loaded.values())
+
+
+def test_cosine_sim_returns_zero_on_shape_mismatch():
+    from tools.embeddings import cosine_sim
+    assert cosine_sim([1.0] * 1536, [1.0, 2.0]) == 0.0

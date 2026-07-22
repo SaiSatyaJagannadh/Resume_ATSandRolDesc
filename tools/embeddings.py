@@ -6,6 +6,7 @@ same keyword set, so the cache is what keeps the second run nearly free.
 
 import hashlib
 import json
+from collections import Counter
 
 import numpy as np
 
@@ -34,11 +35,33 @@ def _load_cache() -> dict[str, list[float]]:
     global _cache
     if _cache is None:
         try:
-            _cache = json.loads(config.EMBEDDING_CACHE.read_text())
+            raw = json.loads(config.EMBEDDING_CACHE.read_text())
         except Exception:
             # Missing or corrupt cache is never fatal: start empty and rewrite.
             _cache = {}
+            return _cache
+        _cache = _drop_mismatched(raw)
     return _cache
+
+
+def _drop_mismatched(raw: dict) -> dict[str, list[float]]:
+    """Keep only vectors of the dominant dimension.
+
+    A cache mixing dimensions is not a hypothetical: switching EMBEDDING_MODEL,
+    an interrupted write, or a test run sharing the path all produce one. Any
+    single bad entry would otherwise reach cosine_sim and raise a shape error
+    that takes down the whole scorer, so entries that disagree with the
+    majority are discarded and simply re-fetched.
+    """
+    vectors = {
+        k: v for k, v in raw.items()
+        if isinstance(v, list) and v and all(isinstance(x, (int, float)) for x in v)
+    }
+    if not vectors:
+        return {}
+    counts = Counter(len(v) for v in vectors.values())
+    expected, _ = counts.most_common(1)[0]
+    return {k: v for k, v in vectors.items() if len(v) == expected}
 
 
 def embed(texts: list[str]) -> list[list[float]]:
@@ -54,6 +77,10 @@ def embed(texts: list[str]) -> list[list[float]]:
 
 def cosine_sim(a, b) -> float:
     a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    # Belt and braces alongside _drop_mismatched: a dimension mismatch means
+    # "not comparable", which is a 0.0 similarity, never a crash mid-scoring.
+    if a.shape != b.shape:
+        return 0.0
     denom = np.linalg.norm(a) * np.linalg.norm(b)
     return float(np.dot(a, b) / denom) if denom else 0.0
 

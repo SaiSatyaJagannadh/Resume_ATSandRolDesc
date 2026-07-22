@@ -39,6 +39,30 @@ def _contains(haystack: str, needle: str) -> bool:
     return re.search(rf"(?<![\w+#]){re.escape(needle)}(?![\w+#])", haystack) is not None
 
 
+# Vendor/qualifier words a JD routinely prefixes onto a tool name that resumes
+# routinely omit: "Apache Airflow" vs "Airflow", "Amazon S3" vs "S3". Without
+# stripping these the exact match fails and the semantic fallback dilutes below
+# threshold against a long bullet, so a skill the candidate genuinely has is
+# scored as missing.
+_QUALIFIERS = {
+    "apache", "amazon", "aws", "microsoft", "google", "oracle", "ibm",
+    "adobe", "atlassian", "hashicorp", "elastic", "red", "hat", "ms",
+}
+
+
+def _keyword_variants(key: str) -> list[str]:
+    """Normalized forms to try for a JD keyword, most specific first."""
+    variants = [key]
+    tokens = key.split()
+    # Drop leading qualifier words ("apache airflow" -> "airflow").
+    i = 0
+    while i < len(tokens) - 1 and tokens[i] in _QUALIFIERS:
+        i += 1
+    if i:
+        variants.append(" ".join(tokens[i:]))
+    return variants
+
+
 def _resume_chunks(resume: ParsedResume) -> list[str]:
     """Every free-text fragment of the resume, as separate semantic candidates."""
     chunks = list(resume.skills) + list(resume.certifications)
@@ -74,7 +98,7 @@ def _score_keywords(resume: ParsedResume, jd: ParsedJD):
             continue
         seen.add(key)
 
-        if _contains(haystack, key):
+        if any(_contains(haystack, v) for v in _keyword_variants(key)):
             matches.append(
                 KeywordMatch(
                     keyword=keyword, matched=True, match_type="exact",
