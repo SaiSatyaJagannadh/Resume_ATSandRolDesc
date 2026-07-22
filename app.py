@@ -65,6 +65,13 @@ def render_sidebar():
             st.session_state.pop("base_resume", None)
             st.rerun()
 
+    st.sidebar.text_input(
+        "GitHub username (optional)",
+        key="github_username",
+        help="Only needed if your resume has no GitHub link. Relevant public "
+        "repos get added as projects, with their URL shown in the results.",
+    )
+
     upload = st.sidebar.file_uploader(
         "Upload / replace master resume", type=RESUME_TYPES
     )
@@ -105,6 +112,20 @@ def render_target_banner(result, final_score):
             "you don't have. A truthful resume you can defend in an interview "
             "beats a higher-scoring one you can't."
         )
+
+
+def render_github_projects(urls):
+    """Say plainly which repos were added — this content goes out under the
+    user's name, so it cannot be added silently."""
+    if not urls:
+        return
+    st.info(
+        f"Added {len(urls)} project(s) from your GitHub, chosen by relevance to "
+        "this job description. Details come straight from the repo — review "
+        "them before you send the resume out."
+    )
+    for url in urls:
+        st.caption(f"- {url}")
 
 
 def render_scores(pre, post, history=None):
@@ -205,6 +226,7 @@ def render_results(result):
     # robustness if the gate never ran.
     final_score = result.get("best_score") or result["post_score"]
 
+    render_github_projects(result.get("github_projects_added"))
     render_target_banner(result, final_score)
     render_scores(result["pre_score"], final_score, result.get("score_history"))
     render_keywords(final_score)
@@ -228,13 +250,14 @@ def render_results(result):
 # --- Main ------------------------------------------------------------------
 
 
-def run_pipeline(resume_text, jd_text):
+def run_pipeline(resume_text, jd_text, github_username=""):
     from graph.build_graph import build_graph
 
     status = st.status("Running the agent pipeline…", expanded=True)
     labels = {
         "resume_parser": "Parsing resume",
         "jd_parser": "Parsing job description",
+        "github_enrich": "Finding relevant GitHub projects",
         "score_pre": "Scoring your current resume",
         "gap_analysis": "Analyzing gaps",
         "resume_tailor": "Tailoring resume",
@@ -249,7 +272,11 @@ def run_pipeline(resume_text, jd_text):
     graph = build_graph()
     # stream() surfaces per-node progress; the last write of each key wins.
     for chunk in graph.stream(
-        {"raw_resume_text": resume_text, "raw_jd_text": jd_text},
+        {
+            "raw_resume_text": resume_text,
+            "raw_jd_text": jd_text,
+            "github_username": github_username,
+        },
         # Headroom for the optimization loop: each round can run a full
         # tailor + fabrication-retry + score cycle.
         {"recursion_limit": 60},
@@ -304,6 +331,7 @@ def main():
             st.session_state.get("base_resume_text")
             or base.model_dump_json(),
             jd_text,
+            st.session_state.get("github_username", ""),
         )
 
     if st.session_state.get("result"):
