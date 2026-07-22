@@ -258,3 +258,20 @@ def test_single_token_keywords_never_match_semantically():
     assert by_kw["CloudFormation"].match_type == "none"
     assert by_kw["ETL/ELT pipelines"].match_type == "semantic"
     assert by_kw["ETL/ELT pipelines"].score == config.SEMANTIC_MATCH_CREDIT
+
+
+def test_spelled_out_terms_match_their_acronym():
+    """JDs spell terms out; resumes use the acronym."""
+    from graph.nodes.ats_scorer import _contains, _keyword_variants, _norm
+
+    haystack = _norm("Python, RAG, LangChain, Azure Data Factory (ADF)")
+
+    for spelled in ["retrieval augmented generation", "azure data factory"]:
+        assert any(_contains(haystack, v) for v in _keyword_variants(spelled)), spelled
+
+    # Two-word terms produce no acronym — "DM"/"DW" would collide with noise.
+    assert _keyword_variants("data modeling") == ["data modeling"]
+    # And an acronym that genuinely is not present stays unmatched.
+    assert not any(
+        _contains(haystack, v) for v in _keyword_variants("business intelligence tooling")
+    )

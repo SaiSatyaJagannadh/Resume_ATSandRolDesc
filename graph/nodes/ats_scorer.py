@@ -62,6 +62,14 @@ def _keyword_variants(key: str) -> list[str]:
         i += 1
     if i:
         variants.append(" ".join(tokens[i:]))
+
+    # Postings spell a term out where resumes use the acronym: a JD asking for
+    # "Retrieval-Augmented Generation" scored as missing against a skills list
+    # containing "RAG". Three tokens minimum — two-letter initialisms ("Data
+    # Modeling" -> "DM") collide with unrelated text far too easily.
+    words = [t for t in tokens[i:] if t]
+    if len(words) >= 3:
+        variants.append("".join(w[0] for w in words))
     return variants
 
 
