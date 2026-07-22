@@ -90,3 +90,16 @@ def test_docx_table_cells_extracted(tmp_path):
     assert "Header paragraph" in text
     assert "Skills" in text
     assert "Fortran" in text
+
+
+def test_repair_skills_splits_unbalanced_brackets():
+    from graph.nodes.resume_parser import repair_skills
+
+    # The parser splits dense skill lists on commas, including inside brackets.
+    assert repair_skills(["AWS (S3", "EC2", "Redshift)"]) == ["AWS", "S3", "EC2", "Redshift"]
+    # Balanced entries survive intact.
+    assert repair_skills(["Azure Data Factory (ADF)"]) == ["Azure Data Factory (ADF)"]
+    # Empties and dupes are dropped.
+    assert repair_skills(["Python", " ", "Python", "BI Tools (Tableau"]) == [
+        "Python", "BI Tools", "Tableau"
+    ]

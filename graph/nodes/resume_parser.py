@@ -6,6 +6,8 @@ the set of "facts" the tailor is allowed to keep, authorizing a fabrication that
 the validator will then wave through. Hence the unusually blunt prompt.
 """
 
+import re
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from graph.state import ParsedResume
@@ -37,9 +39,38 @@ Rules, in priority order:
    Drop the group labels themselves, keep the skills. Returning a handful of
    entries when the resume lists dozens is a transcription failure — these
    entries are exactly what an ATS keyword scan reads first.
+   When a vendor groups its products in brackets, emit the vendor and each
+   product as separate WHOLE entries — never split through the bracket itself:
+   "AWS (S3, EC2, Redshift)" becomes AWS, S3, EC2, Redshift. Every entry must
+   read as a skill on its own; "AWS (S3" and "Redshift)" are broken fragments
+   that match nothing.
 
 If the text is ambiguous, prefer the more literal reading and leave the
 uncertain part out."""
+
+
+def repair_skills(skills: list[str]) -> list[str]:
+    """Split skill entries whose brackets do not balance.
+
+    Rule 6 tells the model to break dense skill lists on commas, and it applies
+    that inside parentheses too: "AWS (S3, EC2, Redshift)" comes back as
+    "AWS (S3", "EC2", "Redshift)". Those fragments match no keyword scan and
+    poison the scorer's semantic candidates, so the stray bracket is treated as
+    one more delimiter. Balanced entries ("Azure Data Factory (ADF)") are left
+    alone.
+    """
+    out = []
+    for skill in skills:
+        parts = (
+            re.split(r"[()]", skill)
+            if skill.count("(") != skill.count(")")
+            else [skill]
+        )
+        for part in parts:
+            part = re.sub(r"\s+", " ", part).strip(" ,;|/")
+            if part and part not in out:
+                out.append(part)
+    return out
 
 
 def resume_parser_node(state) -> dict:
@@ -47,4 +78,5 @@ def resume_parser_node(state) -> dict:
     parsed = structured(ParsedResume).invoke(
         [SystemMessage(SYSTEM), HumanMessage(f"Resume text:\n\n{text}")]
     )
+    parsed.skills = repair_skills(parsed.skills)
     return {"parsed_resume": parsed}
