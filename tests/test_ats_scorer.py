@@ -218,3 +218,43 @@ def test_mismatched_cache_entries_are_dropped_not_fatal(tmp_path, monkeypatch):
 def test_cosine_sim_returns_zero_on_shape_mismatch():
     from tools.embeddings import cosine_sim
     assert cosine_sim([1.0] * 1536, [1.0, 2.0]) == 0.0
+
+
+def test_single_token_keywords_never_match_semantically():
+    """Tool names are exact-match only.
+
+    Embeddings rank single tokens by vibe: "Go" scores 0.491 against "Git" and
+    "CloudFormation" 0.508 against "AWS" — above genuine multi-word matches. No
+    threshold separates them, so they are excluded from the semantic tier
+    outright.
+    """
+    import config
+    from graph.nodes import ats_scorer
+    from graph.state import ExperienceEntry, ParsedJD, ParsedResume
+
+    resume = ParsedResume(
+        skills=["Git", "AWS"],
+        experience=[ExperienceEntry(
+            company="C", title="T", dates="2020",
+            bullets=["Maintained automated data pipelines in the cloud."],
+        )],
+    )
+    jd = ParsedJD(
+        role_title="Engineer", seniority="Mid", domain="tech",
+        must_have_skills=["Go", "CloudFormation", "ETL/ELT pipelines"],
+    )
+
+    # Force every semantic lookup to land well above the threshold; only the
+    # multi-word keyword may take advantage of it.
+    ats_scorer.best_match = lambda q, c: (c[0], 0.99)
+    try:
+        result = ats_scorer.score(resume, jd)
+    finally:
+        from tools.embeddings import best_match as real
+        ats_scorer.best_match = real
+
+    by_kw = {k.keyword: k for k in result.matched_keywords + result.missing_keywords}
+    assert by_kw["Go"].match_type == "none"
+    assert by_kw["CloudFormation"].match_type == "none"
+    assert by_kw["ETL/ELT pipelines"].match_type == "semantic"
+    assert by_kw["ETL/ELT pipelines"].score == config.SEMANTIC_MATCH_CREDIT

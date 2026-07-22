@@ -111,7 +111,22 @@ def _score_keywords(resume: ParsedResume, jd: ParsedJD):
 
         # Partial credit only: a synonym in the resume helps a human reader but
         # a literal-string ATS filter will still miss it.
-        against, sim = best_match(keyword, chunks)
+        #
+        # Concept phrases only. A single-token keyword is a product or tool name
+        # — you either have the tool or you do not — and embeddings rank those by
+        # vibe rather than substance: measured against this corpus, "Go" sits
+        # 0.491 from "Git" and "CloudFormation" 0.508 from "AWS", both ABOVE
+        # genuine multi-word matches like "access control" -> the Azure AD bullet
+        # at 0.383. No threshold separates them, so there is nothing to tune;
+        # crediting them would both lie to the user and push the tailor toward
+        # writing Terraform experience that does not exist.
+        # ponytail: word count as a proxy for "concept vs product name" — a
+        # two-word product ("Azure DevOps") can still slip through. Swap in a
+        # capitalisation/known-vendor check if false positives show up in
+        # practice; the truthfulness validator is the backstop meanwhile.
+        against, sim = ("", 0.0)
+        if len(key.split()) > 1:
+            against, sim = best_match(keyword, chunks)
         if sim >= config.SEMANTIC_MATCH_THRESHOLD:
             matches.append(
                 KeywordMatch(

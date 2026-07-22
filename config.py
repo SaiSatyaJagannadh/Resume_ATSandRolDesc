@@ -45,8 +45,16 @@ WEIGHTS = {
 MUST_HAVE_MULTIPLIER = 2.0
 
 # Cosine similarity at or above this counts as a semantic (partial-credit)
-# match. Below it, no credit.
-SEMANTIC_MATCH_THRESHOLD = 0.72
+# match. Below it, no credit. Applies to multi-word keywords only — see
+# _score_keywords for why single tokens are excluded entirely.
+#
+# 0.50, not 0.72: text-embedding-3-small returns a compressed range, and 0.72
+# was never reached by anything on a real resume, so the semantic tier was dead
+# code and every near-miss scored zero. Calibrated against 36 hand-labelled
+# terms from three live postings: at 0.50 it credits 5 genuine matches
+# ("ETL/ELT pipelines" -> "automated data pipelines") with no false positives;
+# the first wrong answer appears at 0.436.
+SEMANTIC_MATCH_THRESHOLD = 0.50
 
 # A semantic match earns this fraction of the credit an exact match earns.
 SEMANTIC_MATCH_CREDIT = 0.6
