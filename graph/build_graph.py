@@ -2,6 +2,8 @@
 
 from langgraph.graph import END, StateGraph
 
+import config
+
 from graph.nodes.ats_scorer import ats_scorer_node
 from graph.nodes.gap_analysis import gap_analysis_node
 from graph.nodes.jd_parser import jd_parser_node
@@ -31,6 +33,23 @@ def _fail_node(state) -> dict:
     }
 
 
+def _keep_best_node(state) -> dict:
+    """An optimization round fabricated after a good one already succeeded.
+
+    The offending rewrite is dropped; the last validated resume still renders.
+    """
+    best = state.get("best_score")
+    return {
+        "target_met": False,
+        "ceiling_reason": (
+            f"Scored {best.total:.1f}, short of {config.TARGET_ATS_SCORE:.0f}. "
+            "A further rewrite introduced details your base resume does not "
+            "support, so it was discarded and this — the best truthful version "
+            "— was kept."
+        ),
+    }
+
+
 def build_graph():
     g = StateGraph(GraphState)
 
@@ -45,6 +64,7 @@ def build_graph():
     g.add_node("score_post", ats_scorer_node)
     g.add_node("score_gate", score_gate_node)
     g.add_node("resume_renderer", resume_renderer_node)
+    g.add_node("keep_best", _keep_best_node)
     g.add_node("fail", _fail_node)
 
     g.set_entry_point("resume_parser")
@@ -57,7 +77,12 @@ def build_graph():
     g.add_conditional_edges(
         "truthfulness_validator",
         route_after_validation,
-        {"retry": "resume_tailor", "ok": "score_post", "fail": "fail"},
+        {
+            "retry": "resume_tailor",
+            "ok": "score_post",
+            "keep_best": "keep_best",
+            "fail": "fail",
+        },
     )
 
     # Score gate: re-tailor toward the target, or accept the best truthful
@@ -69,6 +94,7 @@ def build_graph():
         {"optimize": "resume_tailor", "done": "resume_renderer"},
     )
 
+    g.add_edge("keep_best", "resume_renderer")
     g.add_edge("resume_renderer", END)
     g.add_edge("fail", END)
 
