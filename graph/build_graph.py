@@ -17,20 +17,51 @@ from graph.nodes.truthfulness_validator import truthfulness_validator_node
 from graph.state import GraphState
 
 
-def _fail_node(state) -> dict:
-    """Hard stop: the tailor kept fabricating after its retries were spent.
-
-    Surfacing the tailored resume anyway would defeat the entire guardrail, so
-    the run ends with an error and no download.
-    """
+def _fabrication_detail(state) -> str:
     fabs = state.get("validation").fabrications if state.get("validation") else []
-    detail = "; ".join(f"{f.kind}: {f.value}" for f in fabs) or "unspecified"
+    return "; ".join(f"{f.kind}: {f.value}" for f in fabs) or "unspecified"
+
+
+def _fail_node(state) -> dict:
+    """Hard stop: nothing truthful exists to fall back to.
+
+    Only reachable when scoring never ran, so there is genuinely nothing to
+    show. A fabricating tailor with a scored base resume behind it goes to
+    `salvage` instead.
+    """
     return {
         "error": (
             "Tailoring was stopped: the model introduced details not present in "
-            f"your base resume and did not correct them after retries ({detail}). "
-            "Your original resume is unchanged."
+            f"your base resume and did not correct them after retries "
+            f"({_fabrication_detail(state)}). Your original resume is unchanged."
         )
+    }
+
+
+def _salvage_node(state) -> dict:
+    """The tailor could not produce a truthful rewrite. Ship the analysis anyway.
+
+    Discarding the whole run here was costing far more than it protected: the
+    score, the keyword coverage, the gap analysis and a rendered document all
+    exist and are all truthful, and the user was getting an error instead of
+    any of them because one skill line could not be worded safely. The base
+    resume is by definition fabrication-free, so it renders; only the tailoring
+    is lost, and the reason says so.
+    """
+    base = state.get("parsed_resume")
+    pre = state.get("pre_score")
+    return {
+        "best_resume": base,
+        "best_score": pre,
+        "best_edit_log": [],
+        "target_met": False,
+        "ceiling_reason": (
+            f"Scored {pre.total:.1f}. Tailoring was skipped: every rewrite "
+            f"attempt claimed something your resume does not support "
+            f"({_fabrication_detail(state)}), so your own wording was kept "
+            "instead. The analysis below is still accurate — the gaps it names "
+            "are real, and closing them is what would raise the score."
+        ),
     }
 
 
@@ -67,6 +98,7 @@ def build_graph():
     g.add_node("score_gate", score_gate_node)
     g.add_node("resume_renderer", resume_renderer_node)
     g.add_node("keep_best", _keep_best_node)
+    g.add_node("salvage", _salvage_node)
     g.add_node("fail", _fail_node)
 
     g.set_entry_point("resume_parser")
@@ -88,6 +120,7 @@ def build_graph():
             "retry": "resume_tailor",
             "ok": "score_post",
             "keep_best": "keep_best",
+            "salvage": "salvage",
             "fail": "fail",
         },
     )
@@ -102,6 +135,7 @@ def build_graph():
     )
 
     g.add_edge("keep_best", "resume_renderer")
+    g.add_edge("salvage", "resume_renderer")
     g.add_edge("resume_renderer", END)
     g.add_edge("fail", END)
 

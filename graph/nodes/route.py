@@ -14,4 +14,9 @@ def route_after_validation(state) -> str:
     # the whole analysis away. Only a first pass with nothing banked is fatal.
     if state.get("best_resume") is not None:
         return "keep_best"
+    # No banked rewrite, but the base resume was scored and is truthful by
+    # definition. Ship that analysis rather than throwing the run away over
+    # wording the tailor could not get right.
+    if state.get("pre_score") is not None:
+        return "salvage"
     return "fail"

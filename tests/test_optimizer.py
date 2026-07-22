@@ -141,3 +141,42 @@ def test_missing_post_score_does_not_crash():
     out = score_gate_node({"tailored_resume": None, "post_score": None})
     assert out["target_met"] is False
     assert route_after_score(out) == "done"
+
+
+def test_salvage_when_first_pass_fabricates_but_a_score_exists():
+    """One unusable skill line must not cost the user the whole analysis."""
+    from graph.build_graph import _salvage_node
+    from graph.nodes.route import route_after_validation
+    from graph.state import Fabrication, ParsedResume, ValidationResult
+
+    failed = ValidationResult(
+        passed=False,
+        fabrications=[Fabrication(kind="skill", value="Spark")],
+    )
+    base = ParsedResume()
+    pre = make_score(59.5, must_matched=3, must_missing=2)
+    state = {
+        "validation": failed,
+        "tailor_attempts": config.MAX_TAILOR_RETRIES,  # retries spent
+        "parsed_resume": base,
+        "pre_score": pre,
+    }
+
+    assert route_after_validation(state) == "salvage"
+
+    out = _salvage_node(state)
+    assert out["best_resume"] is base          # the truthful one still renders
+    assert out["best_score"] is pre
+    assert out["target_met"] is False
+    assert "Spark" in out["ceiling_reason"]    # and the user is told why
+
+
+def test_hard_fail_only_when_nothing_was_ever_scored():
+    from graph.nodes.route import route_after_validation
+    from graph.state import ValidationResult
+
+    state = {
+        "validation": ValidationResult(passed=False),
+        "tailor_attempts": config.MAX_TAILOR_RETRIES,
+    }
+    assert route_after_validation(state) == "fail"
