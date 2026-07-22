@@ -92,11 +92,35 @@ def save_uploaded_resume(upload):
 # --- Results ---------------------------------------------------------------
 
 
-def render_scores(pre, post):
+def render_target_banner(result, final_score):
+    target = config.TARGET_ATS_SCORE
+    if result.get("target_met"):
+        st.success(f"Target met — scored {final_score.total:.1f} (target {target:.0f}).")
+        return
+    reason = result.get("ceiling_reason")
+    if reason:
+        st.warning(f"**Target of {target:.0f} not reached.** {reason}")
+        st.caption(
+            "This is the highest score achievable without claiming experience "
+            "you don't have. A truthful resume you can defend in an interview "
+            "beats a higher-scoring one you can't."
+        )
+
+
+def render_scores(pre, post, history=None):
     st.subheader("ATS match score")
     c1, c2, c3 = st.columns(3)
     c1.metric("Before", f"{pre.total:.1f}")
-    c2.metric("After", f"{post.total:.1f}", delta=f"{post.total - pre.total:+.1f}")
+    c2.metric(
+        "After",
+        f"{post.total:.1f}",
+        delta=f"{post.total - pre.total:+.1f}",
+    )
+    if history and len(history) > 1:
+        c3.caption(
+            "Tailoring passes: "
+            + " → ".join(f"{h:.1f}" for h in history)
+        )
     c3.caption(
         "Heuristic estimate. Real ATS platforms (Workday, Greenhouse, Taleo, "
         "iCIMS) each score differently — but keyword coverage and clean "
@@ -177,12 +201,17 @@ def render_results(result):
         st.error(result["error"])
         return
 
-    render_scores(result["pre_score"], result["post_score"])
-    render_keywords(result["post_score"])
+    # best_* is what actually got rendered into the .docx; fall back for
+    # robustness if the gate never ran.
+    final_score = result.get("best_score") or result["post_score"]
+
+    render_target_banner(result, final_score)
+    render_scores(result["pre_score"], final_score, result.get("score_history"))
+    render_keywords(final_score)
     st.divider()
     render_gaps(result["gap_analysis"])
     st.divider()
-    render_edits(result.get("edit_log", []))
+    render_edits(result.get("best_edit_log") or result.get("edit_log", []))
     st.divider()
 
     path = result.get("docx_path")
@@ -211,6 +240,7 @@ def run_pipeline(resume_text, jd_text):
         "resume_tailor": "Tailoring resume",
         "truthfulness_validator": "Checking for fabrications",
         "score_post": "Re-scoring tailored resume",
+        "score_gate": f"Checking against target ({config.TARGET_ATS_SCORE:.0f})",
         "resume_renderer": "Building .docx",
         "fail": "Stopped: fabrication detected",
     }
@@ -220,7 +250,9 @@ def run_pipeline(resume_text, jd_text):
     # stream() surfaces per-node progress; the last write of each key wins.
     for chunk in graph.stream(
         {"raw_resume_text": resume_text, "raw_jd_text": jd_text},
-        {"recursion_limit": 25},
+        # Headroom for the optimization loop: each round can run a full
+        # tailor + fabrication-retry + score cycle.
+        {"recursion_limit": 60},
     ):
         for node, update in chunk.items():
             status.write(f"✓ {labels.get(node, node)}")
