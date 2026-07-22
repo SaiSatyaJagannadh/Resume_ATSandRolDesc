@@ -34,6 +34,21 @@ duplicate it. Your job is the semantic fabrication string matching cannot see:
 Rewording, reordering, tightening and using the job's vocabulary for the same
 underlying work are LEGITIMATE — do not report them.
 
+This applies to the skills list too, which is where it is most often got wrong.
+Renaming or expanding a tool the base resume already lists is the SAME skill
+under the posting's name, not a new claim:
+  "Git" -> "Git Version Control"                    legitimate
+  "Airflow" -> "Apache Airflow"                     legitimate
+  "Azure Active Directory" -> "Microsoft Entra ID"  legitimate
+  "data pipelines" -> "ETL/ELT pipelines"           legitimate
+Report a skill only when the underlying capability is genuinely absent — a
+DIFFERENT technology, not a different name for one that is present:
+  base lists "Azure Databricks", tailored claims "Spark"       fabrication
+  base lists "Azure", tailored claims "AWS"                    fabrication
+  base lists nothing about it, tailored claims "Terraform"     fabrication
+When in doubt, ask whether an interviewer probing this line would find the
+candidate had actually done the work. If yes, it is wording; let it stand.
+
 passed=false if and only if you find at least one fabrication. For each, give
 the offending value, where it appears, and what the base resume actually says."""
 
