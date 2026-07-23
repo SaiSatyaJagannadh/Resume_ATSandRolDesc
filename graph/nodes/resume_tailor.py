@@ -99,6 +99,47 @@ rule above — a higher score obtained by inventing experience is a failure.
 """
 
 
+def _responsibility_block(pre) -> str:
+    """The JD responsibilities no bullet currently answers.
+
+    Worth a fifth of the score, and the tailor could previously only guess at
+    it: it saw the full responsibility list but no indication of which ones the
+    resume already covers, so it spent its edits on keywords and this dimension
+    never moved.
+    """
+    dim = next((d for d in pre.dimensions if d.name == "responsibilities"), None)
+    if not dim or "Least covered:" not in dim.detail:
+        return ""
+    uncovered = dim.detail.split("Least covered:", 1)[1].strip()
+    return (
+        "\n\nRESPONSIBILITY COVERAGE — no bullet in the resume currently reads "
+        "as an answer to these duties from the posting:\n"
+        f"{uncovered}\n"
+        "Where the candidate has genuinely done this work, rewrite the bullet "
+        "that describes it so the duty is recognisable in the posting's own "
+        "terms — same facts, same scope, the employer's vocabulary. Where they "
+        "have not done it, leave it alone: an invented bullet is a fabrication, "
+        "and you cannot add bullets in any case."
+    )
+
+
+def _already_rejected(state) -> set[str]:
+    """Values a validator has already refused as fabrications.
+
+    They must not reappear as targets: the retry notice at the top of the
+    prompt says to delete them while the targeting block below still lists them
+    as points to win, and the tailor resolves that contradiction by claiming
+    them again. Two retries burn on the same skill and an otherwise truthful
+    rewrite is thrown away over one line.
+    """
+    validation = state.get("validation")
+    if not validation:
+        return set()
+    return {
+        f.value.strip().lower() for f in validation.fabrications if f.value.strip()
+    }
+
+
 def _targeting_block(state) -> str:
     """The specific terms an ATS looked for and did not find.
 
@@ -108,20 +149,25 @@ def _targeting_block(state) -> str:
     naming them here would be asking for a fabrication.
     """
     pre = state.get("pre_score")
-    if not pre or not pre.missing_keywords:
+    if not pre:
         return ""
+    resp = _responsibility_block(pre)
+    if not pre.missing_keywords:
+        return resp
 
     gaps = state.get("gap_analysis")
     off_limits = (
         {g.item.strip().lower() for g in gaps.gaps if g.unsupported_by_resume}
         if gaps else set()
     )
+    rejected = _already_rejected(state)
     winnable = [
         k for k in pre.missing_keywords
         if k.keyword.strip().lower() not in off_limits
+        and not any(r in k.keyword.strip().lower() for r in rejected)
     ]
     if not winnable:
-        return ""
+        return resp
 
     must = [k.keyword for k in winnable if k.is_must_have]
     rest = [k.keyword for k in winnable if not k.is_must_have]
@@ -141,7 +187,7 @@ def _targeting_block(state) -> str:
         lines.append(f"MISSING (must-have): {', '.join(must)}")
     if rest:
         lines.append(f"MISSING (other): {', '.join(rest)}")
-    return "\n".join(lines)
+    return "\n".join(lines) + resp
 
 
 def _text_slots(node):
