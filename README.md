@@ -42,17 +42,25 @@ If the validator finds a fabrication it routes back to the tailor with specific
 feedback, up to 2 retries, then hard-stops rather than shipping a resume with
 invented details.
 
-## The 85% target, and why it isn't a guarantee
+## The 80 target, and why it isn't a guarantee
 
-`score_gate` aims for `TARGET_ATS_SCORE` (default 85, set in `config.py`). When
+`score_gate` aims for `TARGET_ATS_SCORE` (default 80, set in `config.py`). When
 the tailored resume lands short, it re-tailors with score-derived feedback —
-which keywords are missing, which dimensions are losing the most points — for up
-to `MAX_OPTIMIZE_ROUNDS` extra passes.
+which keywords are missing, which dimensions are losing the most points, which
+JD responsibilities no bullet answers — for up to `MAX_OPTIMIZE_ROUNDS` extra
+passes.
 
-**It will not always reach 85, by design.** Keyword coverage is 45% of the
+80 is calibrated against what the scorer can actually emit for a candidate who
+genuinely fits. Measured on a real resume against a posting whose every
+requirement it meets, in the employer's own wording: **79.2 untailored, 81.4
+after tailoring.** Against four live LinkedIn postings the same resume only
+partly fits, it lands between 52 and 63 — which is the point. The number has to
+be able to say no.
+
+**It will not always reach 80, by design.** Keyword coverage is 45% of the
 score. If the candidate genuinely lacks the job's must-have skills, the only way
 to close that gap is to claim skills they don't have — which is precisely what
-the guardrail exists to prevent. A loop that guaranteed 85 would be a loop that
+the guardrail exists to prevent. A loop that guaranteed 80 would be a loop that
 eventually fabricates.
 
 So the gate stops and explains itself when:
@@ -84,6 +92,25 @@ A weighted 0–100 score. Weights live in `config.py` and are tunable.
 | Role/title alignment | 15% | JD title/seniority vs. your recent titles |
 | Quantified impact | 10% | Share of bullets containing metrics |
 | ATS formatting | 10% | Single column, standard headings, parseable contact info, no tables/images |
+
+Four details in the keyword and similarity tiers that a naive implementation
+gets wrong, and this one doesn't:
+
+- **A requirement phrased as a choice is one requirement.** "AWS, GCP, or Azure"
+  is satisfied by any one of them. Counted as three must-haves — and must-haves
+  count double — a candidate who fully met it lost a third of it for not having
+  options the employer never asked for.
+- **Acronyms match in both directions.** A posting asking for "ADLS" matches a
+  resume saying "Azure Data Lake Storage", and vice versa.
+- **Education is searched.** A degree requirement used to score as missing
+  against a resume that plainly held the degree, because no part of the
+  education section was ever compared.
+- **Cosine similarity is calibrated, not used raw.** `text-embedding-3-small`
+  returns ~0.13–0.36 for unrelated text and ~0.60–0.75 for a genuine paraphrase.
+  Treating that raw number as a 0–1 credit capped 35% of the score at roughly
+  0.6 for anyone who hadn't copied the posting's wording. Credit now ramps from
+  nothing at `SIM_FLOOR` to full at `SIM_CEILING`; both are in `config.py` with
+  the measurements behind them.
 
 **This is a heuristic estimate.** Real ATS platforms (Workday, Greenhouse,
 Taleo, iCIMS) each score differently and none publish their algorithm. What
