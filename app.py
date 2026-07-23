@@ -6,6 +6,7 @@ from pathlib import Path
 import streamlit as st
 
 import config
+import ui
 from tools.extract_text import extract_text_from_bytes
 from tools.persistence import clear_base_resume, load_base_resume, save_base_resume
 
@@ -102,15 +103,16 @@ def save_uploaded_resume(upload):
 def render_target_banner(result, final_score):
     target = config.TARGET_ATS_SCORE
     if result.get("target_met"):
-        st.success(f"Target met — scored {final_score.total:.1f} (target {target:.0f}).")
+        ui.banner(True, f"Target met — scored {final_score.total:.1f}",
+                  f"At or above the target of {target:.0f}, honestly.")
         return
     reason = result.get("ceiling_reason")
     if reason:
-        st.warning(f"**Target of {target:.0f} not reached.** {reason}")
-        st.caption(
-            "This is the highest score achievable without claiming experience "
-            "you don't have. A truthful resume you can defend in an interview "
-            "beats a higher-scoring one you can't."
+        ui.banner(
+            False, f"Target of {target:.0f} not reached",
+            f"{reason}  This is the highest score achievable without claiming "
+            "experience you don't have — a truthful résumé you can defend in an "
+            "interview beats a higher-scoring one you can't.",
         )
 
 
@@ -129,73 +131,40 @@ def render_github_projects(urls):
 
 
 def render_scores(pre, post, history=None):
-    st.subheader("ATS match score")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Before", f"{pre.total:.1f}")
-    c2.metric(
-        "After",
-        f"{post.total:.1f}",
-        delta=f"{post.total - pre.total:+.1f}",
-    )
+    ui.header("01", "ATS match score")
+    ui.render_gauge(post.total, before=pre.total)
     if history and len(history) > 1:
-        c3.caption(
-            "Tailoring passes: "
-            + " → ".join(f"{h:.1f}" for h in history)
-        )
-    c3.caption(
+        ui.legend("Tailoring passes: " + " → ".join(f"{h:.1f}" for h in history))
+    ui.legend(
         "Heuristic estimate. Real ATS platforms (Workday, Greenhouse, Taleo, "
-        "iCIMS) each score differently — but keyword coverage and clean "
-        "formatting are the reliable, universal wins."
+        "iCIMS) each score differently — keyword coverage and clean formatting "
+        "are the reliable, universal wins."
     )
 
     with st.expander("Per-dimension breakdown"):
-        before = {d.name: d for d in pre.dimensions}
-        for d in post.dimensions:
-            b = before.get(d.name)
-            st.markdown(
-                f"**{d.name.replace('_', ' ').title()}** "
-                f"({d.weight * 100:.0f}% of total)"
-            )
-            st.progress(min(d.raw, 1.0))
-            delta = f" (was {b.weighted:.1f})" if b else ""
-            st.caption(f"{d.weighted:.1f} / {d.weight * 100:.0f} points{delta}")
-            if d.detail:
-                st.caption(d.detail)
+        ui.meters(post.dimensions, {d.name: d for d in pre.dimensions})
 
 
 def render_keywords(score):
-    st.subheader("Keyword coverage")
-    matched = [k for k in score.matched_keywords]
-    missing = [k for k in score.missing_keywords]
+    ui.header("02", "Keyword coverage")
+    matched = list(score.matched_keywords)
+    missing = list(score.missing_keywords)
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"**Matched ({len(matched)})**")
-        st.markdown(
-            " ".join(
-                f"`{k.keyword}{'*' if k.is_must_have else ''}"
-                f"{'~' if k.match_type == 'semantic' else ''}`"
-                for k in matched
-            )
-            or "_None_"
-        )
+        ui.chips(matched, missing=False)
     with c2:
         st.markdown(f"**Missing ({len(missing)})**")
-        st.markdown(
-            " ".join(f"`{k.keyword}{'*' if k.is_must_have else ''}`" for k in missing)
-            or "_None_"
-        )
-    st.caption("`*` = must-have · `~` = semantic (partial credit) match")
+        ui.chips(missing, missing=True)
+    ui.legend("★ must-have · ≈ semantic (partial credit) · teal = found · dim = missing")
 
 
 def render_gaps(gaps):
-    st.subheader("Gap analysis")
+    ui.header("03", "Gap analysis")
     order = {"critical": 0, "important": 1, "minor": 2}
-    icon = {"critical": "🔴", "important": "🟠", "minor": "🟡"}
     for g in sorted(gaps.gaps, key=lambda g: order.get(g.severity, 3)):
-        flag = " — **not supported by your resume**" if g.unsupported_by_resume else ""
-        st.markdown(f"{icon.get(g.severity, '•')} **{g.item}**{flag}")
-        st.caption(g.rationale)
+        ui.gap_row(g.severity, g.item, g.rationale, g.unsupported_by_resume)
     if gaps.recommendations:
         st.markdown("**Recommendations**")
         for r in gaps.recommendations:
@@ -203,7 +172,7 @@ def render_gaps(gaps):
 
 
 def render_edits(edits):
-    st.subheader("What changed")
+    ui.header("04", "What changed")
     if not edits:
         st.caption("No edits were made.")
         return
@@ -230,9 +199,7 @@ def render_results(result):
     render_target_banner(result, final_score)
     render_scores(result["pre_score"], final_score, result.get("score_history"))
     render_keywords(final_score)
-    st.divider()
     render_gaps(result["gap_analysis"])
-    st.divider()
     render_edits(result.get("best_edit_log") or result.get("edit_log", []))
     st.divider()
 
@@ -293,10 +260,12 @@ def run_pipeline(resume_text, jd_text, github_username=""):
 
 
 def main():
-    st.title("🎯 Resume ATS Optimizer")
-    st.caption(
-        "Tailors your master resume to a specific job description — rephrasing "
-        "and resurfacing real experience, never inventing it."
+    ui.inject()
+    ui.masthead(
+        "Résumé ATS Optimizer",
+        "Tailors your master résumé to one job — rephrasing and resurfacing real "
+        "experience, <b>never inventing it</b>. A validator blocks any run that "
+        "fabricates.",
     )
 
     if "base_resume" not in st.session_state:
