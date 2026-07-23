@@ -275,3 +275,72 @@ def test_spelled_out_terms_match_their_acronym():
     assert not any(
         _contains(haystack, v) for v in _keyword_variants("business intelligence tooling")
     )
+
+
+def test_jd_acronym_matches_a_spelled_out_resume():
+    """The mirror case: the posting abbreviates, the resume spells it out."""
+    s = score(_resume(["Azure Data Lake Storage", "Python"]), _jd(must_have_skills=["ADLS"]))
+    assert "ADLS" not in {k.keyword for k in s.missing_keywords}
+
+    # Not a licence to invent: an acronym with no spelled-out counterpart misses.
+    absent = score(_resume(["Python"]), _jd(must_have_skills=["ADLS"]))
+    assert "ADLS" in {k.keyword for k in absent.missing_keywords}
+
+
+# --- Alternative requirements ----------------------------------------------
+# Regression: "cloud platforms (AWS, GCP, or Azure)" parsed into three separate
+# must-haves cost a candidate with AWS and Azure a third of a requirement they
+# fully met — and must-haves count double.
+
+
+def test_either_alternative_satisfies_one_requirement():
+    s = score(_resume(["AWS", "Azure"]), _jd(must_have_skills=["AWS, GCP, or Azure"]))
+    assert [k.match_type for k in s.matched_keywords] == ["exact"]
+    assert s.missing_keywords == []
+
+
+def test_alternatives_do_not_credit_an_absent_skill():
+    s = score(_resume(["Python"]), _jd(must_have_skills=["Terraform or Pulumi"]))
+    assert "Terraform or Pulumi" in {k.keyword for k in s.missing_keywords}
+
+
+def test_comma_list_without_or_stays_a_conjunction():
+    """"Python, SQL" asks for both; splitting it would credit half as all."""
+    from graph.nodes.ats_scorer import _alternatives
+    assert _alternatives("Python, SQL") == ["Python, SQL"]
+    assert _alternatives("AWS, GCP, or Azure") == ["AWS", "GCP", "Azure"]
+
+
+def test_restated_alternatives_are_not_counted_twice():
+    """`keywords` re-lists the options the requirements already state as a choice."""
+    jd = _jd(must_have_skills=["AWS or GCP"], keywords=["AWS", "GCP"])
+    s = score(_resume(["AWS"]), jd)
+    assert len(s.matched_keywords) + len(s.missing_keywords) == 1
+
+
+# --- Education --------------------------------------------------------------
+# Regression: no part of the education section was ever searched, so a degree
+# requirement scored as missing against a resume that plainly held the degree.
+
+
+def test_degree_requirement_matches_the_education_section():
+    from graph.state import EducationEntry
+    resume = _resume(["Python"])
+    resume.education = [
+        EducationEntry(institution="State University", degree="Bachelor of Science in Computer Science")
+    ]
+    s = score(resume, _jd(must_have_skills=["Bachelor of Science in Computer Science"]))
+    assert s.missing_keywords == []
+
+
+# --- Cosine calibration -----------------------------------------------------
+
+
+def test_calibration_spans_floor_to_ceiling():
+    from graph.nodes.ats_scorer import _calibrate
+    assert _calibrate(config.SIM_FLOOR) == 0.0
+    assert _calibrate(config.SIM_CEILING) == 1.0
+    assert _calibrate(0.0) == 0.0          # unrelated text earns nothing
+    assert _calibrate(1.0) == 1.0          # and nothing exceeds full credit
+    midpoint = (config.SIM_FLOOR + config.SIM_CEILING) / 2
+    assert _calibrate(midpoint) == pytest.approx(0.5)
