@@ -1,0 +1,9 @@
+# "The Instrument" — dark control-panel theme. Colours here drive Streamlit's
+# own chrome (sidebar, widgets); the finer typography and components live in
+# ui.py's injected CSS.
+[theme]
+base = "dark"
+primaryColor = "#E7B24C"
+backgroundColor = "#13161B"
+secondaryBackgroundColor = "#1A1E25"
+textColor = "#E7EAEE"
