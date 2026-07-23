@@ -59,6 +59,23 @@ SEMANTIC_MATCH_THRESHOLD = 0.50
 # A semantic match earns this fraction of the credit an exact match earns.
 SEMANTIC_MATCH_CREDIT = 0.6
 
+# --- Cosine calibration ----------------------------------------------------
+#
+# `title` and `responsibilities` used the raw cosine as a 0-1 credit. It is not
+# one: text-embedding-3-small returns neither 0 for unrelated text nor 1 for a
+# genuine paraphrase, so 35% of the score was unreachable by any candidate who
+# had not copied the posting's wording. Measured on this corpus:
+#
+#   title           unrelated 0.23-0.36 | adjacent role 0.50-0.59 | same role 0.70-0.83
+#   responsibility  unrelated 0.13-0.16 | weak 0.33 | own words 0.60-0.73 | verbatim 0.92
+#
+# Credit therefore ramps from nothing at 0.30 to full at 0.75. Below the floor
+# sits every unrelated pair measured; at the ceiling the candidate has said the
+# same thing in their own words, which is the most an honest resume can do —
+# beating it requires quoting the JD, which is what the guardrail forbids.
+SIM_FLOOR = float(os.getenv("SIM_FLOOR", "0.30"))
+SIM_CEILING = float(os.getenv("SIM_CEILING", "0.75"))
+
 # --- Tailoring loop --------------------------------------------------------
 
 # Fabrication retries, per optimization round.
@@ -66,19 +83,24 @@ MAX_TAILOR_RETRIES = 2
 
 # --- Score optimization loop -----------------------------------------------
 
-# The score the tailored resume aims to clear.
+# The score a well-matched candidate should be able to reach honestly.
 #
-# 75, not 85, because 85 was never calibrated against what this scorer can
-# actually emit. Measured on a real resume:
-#   - JD copied verbatim from the resume  -> 91.7  (degenerate; literal identity)
-#   - ideal candidate, employer's wording -> 70.5  (every requirement genuinely met)
-# Two dimensions score raw cosine similarity, and paraphrase costs ~0.35 of it
-# however well-qualified the candidate is: `title` cannot exceed ~0.63 without
-# an almost identical job title, and the tailor is rightly forbidden from
-# editing titles. So 85 was reachable only by copying the posting's wording
-# wholesale — the exact behaviour the truthfulness guardrail exists to prevent.
-# The result was that every honest run reported failure.
-TARGET_ATS_SCORE = float(os.getenv("TARGET_ATS_SCORE", "75"))
+# 80 is a calibration, not a wish. It was 85 first — never reachable, because
+# `title` and `responsibilities` scored raw cosine, so 35% of the score was
+# capped at roughly 0.6 for any candidate who had not copied the posting's
+# wording; every honest run reported failure. Lowering the target to 75 hid the
+# defect rather than fixing it.
+#
+# With SIM_FLOOR/SIM_CEILING calibrating those two dimensions and the
+# alternative-requirement and education-matching fixes in the keyword tier,
+# a genuinely close match measured against a live posting now lands in the
+# high 70s to low 80s, and a weak match still lands where it should.
+#
+# It remains a target, not a guarantee — see MUST_HAVE_FLOOR. `title` in
+# particular is bounded by a real fact about the candidate: the tailor may not
+# edit job titles, so someone whose title genuinely differs from the posting's
+# gives up points that no amount of rewriting can recover, and should.
+TARGET_ATS_SCORE = float(os.getenv("TARGET_ATS_SCORE", "80"))
 
 # Extra re-tailoring passes allowed when the target is missed. Each round costs
 # a full tailor + validate + score cycle, so this is deliberately small.

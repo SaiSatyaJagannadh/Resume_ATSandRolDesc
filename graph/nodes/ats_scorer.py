@@ -28,6 +28,20 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9+#]+", " ", text.lower())).strip()
 
 
+def _calibrate(sim: float) -> float:
+    """Cosine similarity -> 0-1 credit.
+
+    A raw cosine is not a credit: unrelated text scores well above 0 and a
+    genuine paraphrase well below 1 (see config.SIM_FLOOR/SIM_CEILING for the
+    measurements). Rescaling between the two is what lets a well-matched
+    candidate earn the points they have actually earned.
+    """
+    span = config.SIM_CEILING - config.SIM_FLOOR
+    if span <= 0:
+        return max(0.0, min(1.0, sim))
+    return max(0.0, min(1.0, (sim - config.SIM_FLOOR) / span))
+
+
 def _contains(haystack: str, needle: str) -> bool:
     """Word-boundary substring test on already-normalized text.
 
@@ -73,11 +87,43 @@ def _keyword_variants(key: str) -> list[str]:
     return variants
 
 
+# A requirement phrased as a choice: "AWS, GCP, or Azure", "Spark or Dask".
+# Only ever applied when the word "or" is present — a bare comma list ("Python,
+# SQL") is a conjunction, and treating it as a choice would credit half the
+# requirement as all of it.
+_ALT_SPLIT_RE = re.compile(r",\s*(?:or\s+)?|\s+or\s+", re.I)
+_HAS_OR_RE = re.compile(r"\bor\b", re.I)
+
+
+def _alternatives(keyword: str) -> list[str]:
+    """The options that each independently satisfy one JD requirement.
+
+    A posting asking for "cloud platforms (AWS, GCP, or Azure)" is fully met by
+    any one of the three. Scored as three separate must-haves — which is how a
+    parser naturally emits them, and must-haves count double — a candidate with
+    two of them lost a third of the requirement for a skill the employer never
+    asked them to have.
+
+    Returned verbatim, not normalized: the semantic tier embeds these, and
+    lowercasing "GitHub Actions" is enough to move the vector below threshold.
+    """
+    if not _HAS_OR_RE.search(keyword):
+        return [keyword]
+    parts = [p.strip() for p in _ALT_SPLIT_RE.split(keyword)]
+    return [p for p in parts if p] or [keyword]
+
+
 def _resume_chunks(resume: ParsedResume) -> list[str]:
     """Every free-text fragment of the resume, as separate semantic candidates."""
     chunks = list(resume.skills) + list(resume.certifications)
     if resume.summary:
         chunks.append(resume.summary)
+    # Education was absent here, so every degree requirement scored as missing
+    # against a resume that plainly held the degree: a JD asking for a
+    # "Bachelor's degree in computer science" found nothing to match, because
+    # no part of the education section was ever searched.
+    for edu in resume.education:
+        chunks.append(f"{edu.degree} {edu.institution} {edu.details}".strip())
     for exp in resume.experience:
         chunks.append(f"{exp.title} {exp.company}".strip())
         chunks += exp.bullets
@@ -85,6 +131,26 @@ def _resume_chunks(resume: ParsedResume) -> list[str]:
         chunks.append(f"{proj.name} {proj.description}".strip())
         chunks += proj.bullets
     return [c for c in chunks if c.strip()]
+
+
+def _chunk_acronyms(chunks: list[str]) -> list[str]:
+    """Initials of short spelled-out phrases in the resume.
+
+    _keyword_variants covers a posting that spells a term out against a resume
+    that abbreviates it. Postings do it the other way round just as often — a
+    JD asking for "ADLS" scored as missing against a resume listing "Azure Data
+    Lake Storage" — and this is that mirror.
+
+    Three words minimum for the same reason as there: two-letter initialisms
+    collide with unrelated text. Six maximum because the initials of a whole
+    bullet are noise, not an acronym anyone searches for.
+    """
+    out = []
+    for chunk in chunks:
+        words = [w for w in _norm(chunk).split() if w]
+        if 3 <= len(words) <= 6:
+            out.append("".join(w[0] for w in words))
+    return out
 
 
 def _bullets(resume: ParsedResume) -> list[str]:
@@ -96,19 +162,41 @@ def _bullets(resume: ParsedResume) -> list[str]:
 
 def _score_keywords(resume: ParsedResume, jd: ParsedJD):
     chunks = _resume_chunks(resume)
-    haystack = _norm(" ".join(chunks))
+    # Acronyms join the haystack only — never `chunks`, which is what the
+    # semantic tier embeds, and "adls" as a bare token embeds like nothing.
+    haystack = _norm(" ".join(chunks + _chunk_acronyms(chunks)))
 
     terms = [(k, True) for k in jd.must_have_skills]
     terms += [(k, False) for k in jd.keywords + jd.nice_to_have_skills]
 
+    # `keywords` is a flat union, so it re-lists the options of a choice the
+    # requirements already state as one ("AWS or GCP or Azure" alongside a bare
+    # "GCP"). Counting both scores the same requirement twice and marks the
+    # unchosen options as missing, which is the very penalty _alternatives
+    # exists to remove.
+    # ponytail: a term absorbed here is gone even if the posting separately
+    # requires it outright ("Python or Scala" plus a hard "Python"), so someone
+    # with only Scala would clear both. Rare enough to accept; the fix is to
+    # absorb only terms the requirements never list on their own.
+    absorbed = {
+        _norm(alt)
+        for keyword, _ in terms
+        for alt in _alternatives(keyword)
+        if len(_alternatives(keyword)) > 1
+    }
+
     seen, matches = set(), []
     for keyword, must in terms:
         key = _norm(keyword)
-        if not key or key in seen:
+        if not key or key in seen or key in absorbed:
             continue
         seen.add(key)
 
-        if any(_contains(haystack, v) for v in _keyword_variants(key)):
+        if any(
+            _contains(haystack, v)
+            for alt in _alternatives(keyword)
+            for v in _keyword_variants(_norm(alt))
+        ):
             matches.append(
                 KeywordMatch(
                     keyword=keyword, matched=True, match_type="exact",
@@ -132,9 +220,15 @@ def _score_keywords(resume: ParsedResume, jd: ParsedJD):
         # two-word product ("Azure DevOps") can still slip through. Swap in a
         # capitalisation/known-vendor check if false positives show up in
         # practice; the truthfulness validator is the backstop meanwhile.
+        # Per alternative, best wins: "GitLab or GitHub Actions" embedded whole
+        # sits below threshold against any single resume line, while the option
+        # the candidate actually has clears it comfortably.
         against, sim = ("", 0.0)
-        if len(key.split()) > 1:
-            against, sim = best_match(keyword, chunks)
+        for alt in _alternatives(keyword):
+            if len(_norm(alt).split()) > 1:
+                alt_against, alt_sim = best_match(alt, chunks)
+                if alt_sim > sim:
+                    against, sim = alt_against, alt_sim
         if sim >= config.SEMANTIC_MATCH_THRESHOLD:
             matches.append(
                 KeywordMatch(
@@ -165,16 +259,29 @@ def _score_title(resume: ParsedResume, jd: ParsedJD):
     if not target or not titles:
         return 0.0, "No comparable job title on the resume."
     against, sim = best_match(target, titles)
-    return max(0.0, min(1.0, sim)), f"Closest title: {against!r} vs JD {target!r}."
+    return _calibrate(sim), f"Closest title: {against!r} vs JD {target!r}."
 
 
 def _score_responsibilities(resume: ParsedResume, jd: ParsedJD):
     bullets = _bullets(resume)
     if not jd.responsibilities or not bullets:
         return 0.0, "No responsibilities or no experience bullets to compare."
-    sims = [best_match(r, bullets)[1] for r in jd.responsibilities]
-    raw = max(0.0, min(1.0, sum(sims) / len(sims)))
-    return raw, f"Mean best-match similarity over {len(sims)} responsibilities."
+    # Calibrated per responsibility, then averaged: rescaling the mean instead
+    # would let one strong bullet and one irrelevant one average into a
+    # middling cosine that no longer means anything.
+    scored = [(r, _calibrate(best_match(r, bullets)[1])) for r in jd.responsibilities]
+    raw = sum(s for _, s in scored) / len(scored)
+
+    # Name the uncovered ones. This dimension is 20% of the score and the
+    # tailor was being told only its number, which is not actionable — with the
+    # specific responsibilities in hand it can rewrite the bullets describing
+    # that work in the posting's vocabulary, which is the honest way to earn
+    # these points.
+    weakest = [r for r, s in sorted(scored, key=lambda p: p[1])[:4] if s < 0.5]
+    detail = f"Mean best-match similarity over {len(scored)} responsibilities."
+    if weakest:
+        detail += " Least covered: " + "; ".join(repr(r) for r in weakest)
+    return raw, detail
 
 
 def _score_quantified_impact(resume: ParsedResume, _jd: ParsedJD):

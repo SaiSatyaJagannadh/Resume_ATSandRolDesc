@@ -22,6 +22,12 @@ Split requirements by how the posting phrases them:
 When a posting does not mark a requirement either way, judge by whether the role
 is plainly undoable without it; default to nice-to-have if genuinely ambiguous.
 
+When one requirement offers interchangeable alternatives — "AWS, GCP, or Azure",
+"GitLab or GitHub Actions", "Spark or Dask" — emit it as ONE entry joined with
+" or ", never as separate skills. The posting asked for any one of them, so
+splitting them penalises a candidate who fully meets the requirement for not
+also having the options they were never asked for.
+
 keywords is the union of everything ATS-indexable, including terms that appear
 in the responsibilities but not in the requirements list.
 
