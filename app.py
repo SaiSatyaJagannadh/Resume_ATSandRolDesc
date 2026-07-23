@@ -283,7 +283,11 @@ def run_pipeline(resume_text, jd_text, github_username=""):
     ):
         for node, update in chunk.items():
             status.write(f"✓ {labels.get(node, node)}")
-            final.update(update)
+            # A node signalling "no state change" streams as None, not {}.
+            # github_enrich does exactly that whenever it finds no matching
+            # repos — the documented, expected path — and updating from it
+            # took the whole run down with a raw traceback.
+            final.update(update or {})
     status.update(label="Done", state="complete", expanded=False)
     return final
 
