@@ -1,4 +1,23 @@
-# Resume ATS Optimizer
+<div align="center">
+
+# 🎯 Resume ATS Optimizer — LangGraph Agent
+
+### Paste a job description, get a before → after ATS score, a gap report, and a tailored .docx — with a validator that blocks any fabricated experience.
+
+[![Live Demo](https://img.shields.io/badge/▶_Live_Demo-Try_it_now-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://resume--ats--score.streamlit.app/)
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=flat-square&logo=langchain&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
+![python-docx](https://img.shields.io/badge/python--docx-2B579A?style=flat-square&logo=microsoftword&logoColor=white)
+![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white)
+
+**👉 [resume--ats--score.streamlit.app](https://resume--ats--score.streamlit.app/)**
+
+</div>
+
+---
 
 Store your master resume once. Paste any job description. Get a before → after
 ATS score, a gap report, an explanation of every edit, and a downloadable
@@ -207,3 +226,11 @@ tests/
 - The metric detector counts a bare `k`/`m`/`bn` token as a number, so an odd
   bullet can false-positive on quantified impact.
 - The scorer is a heuristic, not a simulation of any specific ATS.
+
+---
+
+<div align="center">
+
+**Built by [Sai Satya Jagannadh Doddipatla (DJ)](https://saisatyajagannadh.github.io/PersonalPortfolio/)** · ⭐ Star the repo if it helped
+
+</div>
